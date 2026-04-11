@@ -1,0 +1,5 @@
+.env
+.alert_state.json
+btc_alert.log
+__pycache__/
+*.pyc

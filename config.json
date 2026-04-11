@@ -1,0 +1,25 @@
+{
+  "_comentario": "Configure suas preferências aqui",
+  "whatsapp": {
+    "phone": "+5511999438539",
+    "_phone_help": "Seu número com código do país, ex: +5511987654321",
+    "callmebot_api_key": "4329276",
+    "_api_key_help": "Veja README_SETUP.md para obter seu API key gratuito"
+  },
+  "thresholds": {
+    "_comentario": "Alerta quando a variação atingir ou superar este % no período",
+    "3h": 0.5,
+    "6h": 1.0,
+    "12h": 2.0,
+    "24h": 3.0
+  },
+  "cooldown_horas": {
+    "_comentario": "Tempo mínimo (em horas) entre alertas do mesmo período para evitar spam",
+    "3h": 1.0,
+    "6h": 2.0,
+    "12h": 4.0,
+    "24h": 6.0
+  },
+  "janela_historico_minutos": 10,
+  "_janela_help": "Janela em minutos para buscar o preço histórico via trades. Aumente se houver erros."
+}
