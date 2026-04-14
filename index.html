@@ -1105,37 +1105,14 @@ function renderFearGreed(value, label) {
 }
 
 async function fetchFearGreed() {
-  // Primário: homepage do CMC embute o F&G no HTML (campo fearGreedIndexData)
   try {
-    const url = 'https://coinmarketcap.com/';
+    const url = 'https://api.alternative.me/fng/?limit=1';
     const endpoint = IS_PROXIED ? `/proxy?url=${encodeURIComponent(url)}` : url;
-    const ctrl = new AbortController();
-    const tid  = setTimeout(() => ctrl.abort(), 15_000);
-    let html;
-    try {
-      const r = await fetch(endpoint, { signal: ctrl.signal });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      html = await r.text();
-    } finally { clearTimeout(tid); }
-
-    const m = html.match(/"fearGreedIndexData":\{"currentIndex":\{"score":(\d+),"maxScore":\d+,"name":"([^"]+)"/);
-    if (m) {
-      renderFearGreed(parseInt(m[1], 10), m[2]);
-      return;
-    }
-    throw new Error('Padrão não encontrado no HTML do CMC');
-  } catch (err) {
-    console.warn('[FearGreed] CMC scrape falhou, usando Alternative.me:', err.message);
-  }
-  // Fallback: Alternative.me
-  try {
-    const altUrl = 'https://api.alternative.me/fng/?limit=1';
-    const endpoint = IS_PROXIED ? `/proxy?url=${encodeURIComponent(altUrl)}` : altUrl;
     const data = await fetchJSON(endpoint, 10_000);
     const entry = data?.data?.[0];
     if (entry) renderFearGreed(parseInt(entry.value, 10), entry.value_classification || '');
   } catch (err) {
-    console.warn('[FearGreed] Alternative.me falhou:', err.message);
+    console.warn('[FearGreed] Erro:', err.message);
   }
 }
 
