@@ -48,6 +48,18 @@
     #status-dot.error   { background: #f85149; }
     #status-dot.loading { background: #F7931A; animation: blink 1s ease-in-out infinite; }
     @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.25} }
+
+    /* ── Fear & Greed widget ────────────────────────────────── */
+    #fg-widget {
+      display: flex; align-items: center; gap: 7px;
+      padding: 0 12px; flex-shrink: 0;
+      border-left: 1px solid #30363d;
+      border-right: 1px solid #30363d;
+      height: 100%; margin: 0 4px;
+    }
+    #fg-text  { display: flex; flex-direction: column; line-height: 1.25; }
+    #fg-value { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; color: #fff; }
+    #fg-label { font-size: 9px; color: rgba(255,255,255,.4); white-space: nowrap; }
     #refresh-bar {
       position: absolute; bottom: 0; left: 0;
       height: 2px; width: 0%; background: #F7931A;
@@ -301,6 +313,29 @@
     </div>
   </div>
   <div id="header-right">
+    <!-- Fear & Greed Index -->
+    <div id="fg-widget">
+      <svg width="64" height="38" viewBox="0 0 64 38" style="overflow:visible;flex-shrink:0">
+        <!-- background track -->
+        <path d="M 4 34 A 28 28 0 0 0 60 34" fill="none" stroke="rgba(255,255,255,.07)" stroke-width="6" stroke-linecap="butt"/>
+        <!-- Extreme Fear 0–25% -->
+        <path d="M 4 34 A 28 28 0 0 0 12.2 14.2" fill="none" stroke="#c0392b" stroke-width="6" stroke-linecap="butt"/>
+        <!-- Fear 25–46% -->
+        <path d="M 12.2 14.2 A 28 28 0 0 0 28.5 6.2" fill="none" stroke="#e67e22" stroke-width="6" stroke-linecap="butt"/>
+        <!-- Neutral 46–54% -->
+        <path d="M 28.5 6.2 A 28 28 0 0 0 35.5 6.2" fill="none" stroke="#f1c40f" stroke-width="6" stroke-linecap="butt"/>
+        <!-- Greed 54–75% -->
+        <path d="M 35.5 6.2 A 28 28 0 0 0 51.8 14.2" fill="none" stroke="#2ecc71" stroke-width="6" stroke-linecap="butt"/>
+        <!-- Extreme Greed 75–100% -->
+        <path d="M 51.8 14.2 A 28 28 0 0 0 60 34" fill="none" stroke="#27ae60" stroke-width="6" stroke-linecap="butt"/>
+        <!-- needle dot (default: value=50 → top) -->
+        <circle id="fg-dot" cx="32" cy="6" r="4" fill="#fff" stroke="#161b22" stroke-width="2"/>
+      </svg>
+      <div id="fg-text">
+        <span id="fg-value">—</span>
+        <span id="fg-label">Fear &amp; Greed</span>
+      </div>
+    </div>
     <span id="coin-count"></span>
     <span id="last-update">Carregando...</span>
     <div id="status-dot" class="loading"></div>
@@ -344,7 +379,7 @@
       <div id="news-feed">
         <div class="feed-placeholder">
           <span>Carregando feed…</span>
-          <small>@CoinMarketCap · @MercadoBitcoin · @PortaldoBitcoin · @agouvinhas</small>
+          <small>Bitcoin Magazine · Decrypt · Cointelegraph · The Block · Watcher.Guru · Portal do Bitcoin · Livecoins</small>
         </div>
       </div>
     </div>
@@ -692,7 +727,7 @@ function renderHeatmap() {
 }
 
 // ════════════════════════════════════════════════════════════════
-//  BTC/USDT Candlestick (Binance)
+//  BTC Chart — CoinMarketCap (primário) + Binance (fallback)
 // ════════════════════════════════════════════════════════════════
 
 let btcChart     = null;
@@ -701,7 +736,6 @@ let candleSeries = null;
 async function initBTCChart() {
   const container = document.getElementById('chart-container');
   if (!container) return;
-  // Wait for layout paint
   if (!container.clientWidth || !container.clientHeight) {
     setTimeout(initBTCChart, 150);
     return;
@@ -732,58 +766,104 @@ async function initBTCChart() {
   });
 
   await loadBTCCandles();
-  setInterval(loadBTCCandles, 5 * 60 * 1000); // refresh every 5 min
+  setInterval(loadBTCCandles, 15 * 60 * 1000); // refresh every 15 min
+}
+
+// Busca candles do CoinMarketCap (dados horários de 7 dias)
+async function fetchCMCCandles() {
+  const url = 'https://api.coinmarketcap.com/data-api/v3/cryptocurrency/detail/chart?id=1&range=7D';
+  const endpoint = IS_PROXIED ? `/proxy?url=${encodeURIComponent(url)}` : url;
+  const data = await fetchJSON(endpoint, 15_000);
+  const points = data?.data?.points;
+  if (!points) throw new Error('CMC: sem dados de points');
+
+  const entries = Object.entries(points)
+    .map(([ts, val]) => ({ time: parseInt(ts, 10), price: val.v[0] }))
+    .filter(e => e.price > 0)
+    .sort((a, b) => a.time - b.time);
+
+  if (entries.length < 2) throw new Error('CMC: dados insuficientes');
+
+  // Sintetizar candles OHLC a partir de preços consecutivos
+  const candles = [];
+  for (let i = 1; i < entries.length; i++) {
+    const open  = entries[i - 1].price;
+    const close = entries[i].price;
+    candles.push({
+      time:  entries[i].time,
+      open,
+      high:  Math.max(open, close),
+      low:   Math.min(open, close),
+      close,
+    });
+  }
+  return candles;
+}
+
+// Fallback: Binance 5m (3 lotes paralelos = 7 dias)
+async function loadBinanceCandles() {
+  const FIVE_MIN   = 5 * 60 * 1000;
+  const now        = Date.now();
+  const alignedNow = Math.floor(now / FIVE_MIN) * FIVE_MIN;
+  const start      = alignedNow - 7 * 24 * 60 * 60 * 1000;
+  const batchStarts = [start, start + 1000 * FIVE_MIN, start + 2000 * FIVE_MIN];
+
+  const results = await Promise.all(
+    batchStarts.map(t =>
+      fetchJSON(
+        `https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=5m&startTime=${t}&limit=1000`,
+        15_000
+      ).catch(() => [])
+    )
+  );
+
+  const seen = new Set();
+  return results
+    .flat()
+    .map(k => ({
+      time:  Math.floor(k[0] / 1000),
+      open:  parseFloat(k[1]),
+      high:  parseFloat(k[2]),
+      low:   parseFloat(k[3]),
+      close: parseFloat(k[4]),
+    }))
+    .filter(c => { if (seen.has(c.time)) return false; seen.add(c.time); return true; })
+    .sort((a, b) => a.time - b.time);
+}
+
+function updateChartUI(candles, source) {
+  if (!candles.length) return;
+  candleSeries.setData(candles);
+  btcChart.timeScale().fitContent();
+
+  const last   = candles[candles.length - 1];
+  const chgPct = (last.close - candles[0].open) / candles[0].open * 100;
+  const color  = chgPct >= 0 ? '#27ae60' : '#c0392b';
+
+  document.getElementById('chart-label').textContent = source;
+  document.getElementById('chart-price').textContent =
+    `$${last.close.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const chgEl = document.getElementById('chart-change');
+  chgEl.style.color = color;
+  chgEl.textContent = `${chgPct >= 0 ? '▲' : '▼'} ${Math.abs(chgPct).toFixed(2)}%`;
 }
 
 async function loadBTCCandles() {
   if (!candleSeries) return;
+  // Tenta CoinMarketCap primeiro
   try {
-    const FIVE_MIN   = 5 * 60 * 1000;
-    const now        = Date.now();
-    const alignedNow = Math.floor(now / FIVE_MIN) * FIVE_MIN;
-    const start      = alignedNow - 7 * 24 * 60 * 60 * 1000; // 7 days ago
-
-    // 3 parallel batches × 1000 candles = 2016 × 5m candles ≈ 7 days
-    const batchStarts = [start, start + 1000 * FIVE_MIN, start + 2000 * FIVE_MIN];
-    const results = await Promise.all(
-      batchStarts.map(t =>
-        fetchJSON(
-          `https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=5m&startTime=${t}&limit=1000`,
-          15_000
-        ).catch(() => [])
-      )
-    );
-
-    const seen = new Set();
-    const candles = results
-      .flat()
-      .map(k => ({
-        time:  Math.floor(k[0] / 1000),
-        open:  parseFloat(k[1]),
-        high:  parseFloat(k[2]),
-        low:   parseFloat(k[3]),
-        close: parseFloat(k[4]),
-      }))
-      .filter(c => { if (seen.has(c.time)) return false; seen.add(c.time); return true; })
-      .sort((a, b) => a.time - b.time);
-
-    if (!candles.length) return;
-
-    candleSeries.setData(candles);
-    btcChart.timeScale().fitContent();
-
-    const last    = candles[candles.length - 1];
-    const chgPct  = ((last.close - candles[0].open) / candles[0].open * 100);
-    const color   = chgPct >= 0 ? '#27ae60' : '#c0392b';
-
-    document.getElementById('chart-price').textContent =
-      `$${last.close.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-    const chgEl = document.getElementById('chart-change');
-    chgEl.style.color   = color;
-    chgEl.textContent   = `${chgPct >= 0 ? '▲' : '▼'} ${Math.abs(chgPct).toFixed(2)}%`;
-
+    const candles = await fetchCMCCandles();
+    updateChartUI(candles, 'BTC/USD · 1h · 7d · CoinMarketCap');
+    return;
   } catch (err) {
-    console.error('[Chart] Erro ao carregar candles:', err);
+    console.warn('[Chart] CMC falhou, usando Binance:', err.message);
+  }
+  // Fallback: Binance
+  try {
+    const candles = await loadBinanceCandles();
+    updateChartUI(candles, 'BTC/USDT · 5m · 7d · Binance');
+  } catch (err) {
+    console.error('[Chart] Binance também falhou:', err);
   }
 }
 
@@ -799,7 +879,43 @@ function resizeChart() {
 // ════════════════════════════════════════════════════════════════
 
 // Fontes RSS confirmadas como funcionais via proxy
+// Nota: Michael Saylor (@saylor), @agouvinhas e Mercado Bitcoin não têm RSS público disponível.
 const RSS_FEEDS = [
+  {
+    url:    'https://bitcoinmagazine.com/feed',
+    name:   'Bitcoin Magazine',
+    handle: 'BitcoinMagazine',
+    color:  '#F7931A',
+    avatar: 'https://unavatar.io/twitter/BitcoinMagazine',
+  },
+  {
+    url:    'https://cointelegraph.com/rss',
+    name:   'Cointelegraph',
+    handle: 'Cointelegraph',
+    color:  '#3DAEFF',
+    avatar: 'https://unavatar.io/twitter/Cointelegraph',
+  },
+  {
+    url:    'https://decrypt.co/feed',
+    name:   'Decrypt',
+    handle: 'decryptmedia',
+    color:  '#9B59B6',
+    avatar: 'https://unavatar.io/twitter/decryptmedia',
+  },
+  {
+    url:    'https://www.theblock.co/rss.xml',
+    name:   'The Block',
+    handle: 'TheBlock__',
+    color:  '#5B8DEF',
+    avatar: 'https://unavatar.io/twitter/TheBlock__',
+  },
+  {
+    url:    'https://watcherguru.com/feed/',
+    name:   'Watcher.Guru',
+    handle: 'WatcherGuru',
+    color:  '#E040FB',
+    avatar: 'https://unavatar.io/twitter/WatcherGuru',
+  },
   {
     url:    'https://portaldobitcoin.uol.com.br/feed/',
     name:   'Portal do Bitcoin',
@@ -813,20 +929,6 @@ const RSS_FEEDS = [
     handle: 'livecoins',
     color:  '#00C9A7',
     avatar: 'https://unavatar.io/twitter/livecoins',
-  },
-  {
-    url:    'https://decrypt.co/feed',
-    name:   'Decrypt',
-    handle: 'decryptmedia',
-    color:  '#7B5EA7',
-    avatar: 'https://unavatar.io/twitter/decryptmedia',
-  },
-  {
-    url:    'https://bitcoinmagazine.com/feed',
-    name:   'Bitcoin Magazine',
-    handle: 'BitcoinMagazine',
-    color:  '#F7931A',
-    avatar: 'https://unavatar.io/twitter/BitcoinMagazine',
   },
 ];
 
@@ -987,6 +1089,54 @@ function initNewsPanel() {
 }
 
 // ════════════════════════════════════════════════════════════════
+//  Fear & Greed Index (Alternative.me)
+// ════════════════════════════════════════════════════════════════
+
+function renderFearGreed(value, label) {
+  // Posição do ponto no arco: v=0 → 180°, v=100 → 0°
+  // cx=32, cy=34, r=28
+  const theta = (180 - value * 1.8) * Math.PI / 180;
+  const x = (32 + 28 * Math.cos(theta)).toFixed(1);
+  const y = (34 - 28 * Math.sin(theta)).toFixed(1);
+
+  const dot = document.getElementById('fg-dot');
+  if (dot) { dot.setAttribute('cx', x); dot.setAttribute('cy', y); }
+
+  const valEl = document.getElementById('fg-value');
+  if (valEl) {
+    valEl.textContent = value;
+    if      (value <= 25) valEl.style.color = '#e74c3c';
+    else if (value <= 46) valEl.style.color = '#e67e22';
+    else if (value <= 54) valEl.style.color = '#f1c40f';
+    else if (value <= 75) valEl.style.color = '#2ecc71';
+    else                  valEl.style.color = '#27ae60';
+  }
+
+  const lblEl = document.getElementById('fg-label');
+  if (lblEl) lblEl.textContent = label || 'Fear & Greed';
+}
+
+async function fetchFearGreed() {
+  try {
+    const url = 'https://api.alternative.me/fng/?limit=1';
+    const endpoint = IS_PROXIED ? `/proxy?url=${encodeURIComponent(url)}` : url;
+    const data = await fetchJSON(endpoint, 10_000);
+    const entry = data?.data?.[0];
+    if (!entry) return;
+    const val = parseInt(entry.value, 10);
+    const lbl = entry.value_classification || '';
+    if (!isNaN(val)) renderFearGreed(val, lbl);
+  } catch (err) {
+    console.warn('[FearGreed] Erro:', err.message);
+  }
+}
+
+function initFearGreed() {
+  fetchFearGreed();
+  setInterval(fetchFearGreed, 60 * 60 * 1000); // atualiza a cada hora
+}
+
+// ════════════════════════════════════════════════════════════════
 //  Divisores redimensionáveis
 // ════════════════════════════════════════════════════════════════
 
@@ -1048,6 +1198,7 @@ window.addEventListener('resize', () => {
 //  Inicialização
 // ════════════════════════════════════════════════════════════════
 
+initFearGreed();
 initNewsPanel();
 initBTCChart();
 loadData();
