@@ -132,40 +132,90 @@
       min-height: 60px;
       overflow: hidden;
     }
-    #news-tabs {
-      height: 34px;
+    #news-header {
+      height: 32px;
       display: flex;
-      align-items: stretch;
+      align-items: center;
+      padding: 0 12px;
       border-bottom: 1px solid #21262d;
       flex-shrink: 0;
-    }
-    .news-tab {
-      flex: 1;
-      background: none;
-      border: none;
-      border-bottom: 2px solid transparent;
-      color: rgba(255,255,255,.4);
-      font-size: 10px;
+      font-size: 10.5px;
       font-weight: 600;
-      letter-spacing: .04em;
+      color: rgba(255,255,255,.45);
+      letter-spacing: .05em;
+      gap: 6px;
+    }
+    #news-status {
+      margin-left: auto;
+      font-size: 10px;
+      font-weight: 400;
+      color: rgba(255,255,255,.25);
+    }
+    #news-feed {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+    #news-feed::-webkit-scrollbar { width: 3px; }
+    #news-feed::-webkit-scrollbar-track { background: transparent; }
+    #news-feed::-webkit-scrollbar-thumb { background: #30363d; border-radius: 2px; }
+
+    .tweet-card {
+      display: flex;
+      gap: 9px;
+      padding: 9px 12px;
+      border-bottom: 1px solid rgba(33,38,45,.8);
       cursor: pointer;
-      font-family: inherit;
-      transition: color .15s, border-color .15s;
-      white-space: nowrap;
+      transition: background .12s, transform .35s ease, opacity .35s ease;
+      transform: translateY(-16px);
+      opacity: 0;
+    }
+    .tweet-card.show { transform: translateY(0); opacity: 1; }
+    .tweet-card:hover { background: rgba(255,255,255,.03); }
+
+    .tw-avatar {
+      width: 34px; height: 34px;
+      border-radius: 50%;
       overflow: hidden;
-      text-overflow: ellipsis;
-      padding: 0 4px;
+      flex-shrink: 0;
+      background: #21262d;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px; font-weight: 700;
+      position: relative;
     }
-    .news-tab:hover  { color: rgba(255,255,255,.75); }
-    .news-tab.active { color: #F7931A; border-bottom-color: #F7931A; }
-    #news-frames { flex: 1; position: relative; overflow: hidden; }
-    .news-frame {
+    .tw-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .tw-init {
       position: absolute; inset: 0;
-      border: none; display: none;
-      width: 100%; height: 100%;
-      background: #161b22;
+      align-items: center; justify-content: center;
+      font-size: 14px; font-weight: 700;
     }
-    .news-frame.active { display: block; }
+
+    .tw-body   { flex: 1; min-width: 0; }
+    .tw-meta   { display: flex; align-items: baseline; gap: 5px; margin-bottom: 3px; flex-wrap: wrap; }
+    .tw-name   { font-size: 11.5px; font-weight: 700; white-space: nowrap; }
+    .tw-handle { font-size: 10px; color: rgba(255,255,255,.35); white-space: nowrap; }
+    .tw-dot    { font-size: 10px; color: rgba(255,255,255,.2); }
+    .tw-time   { font-size: 10px; color: rgba(255,255,255,.3); margin-left: auto; white-space: nowrap; }
+    .tw-text {
+      font-size: 11px; color: rgba(255,255,255,.78); line-height: 1.45;
+      word-break: break-word;
+    }
+    .tw-title  { font-weight: 600; margin-bottom: 2px; }
+    .tw-summary {
+      color: rgba(255,255,255,.45); font-size: 10.5px;
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+    }
+    .tw-text a { color: #1d9bf0; text-decoration: none; }
+    .tw-mention { color: #1d9bf0; }
+    .tw-hashtag { color: #1d9bf0; }
+
+    .feed-placeholder {
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      height: 100%; gap: 10px;
+      color: rgba(255,255,255,.3); font-size: 11.5px; text-align: center; padding: 20px;
+    }
+    .feed-placeholder small { font-size: 10px; color: rgba(255,255,255,.2); }
 
     /* ── Heatmap ────────────────────────────────────────────── */
     #heatmap {
@@ -287,13 +337,16 @@
     <div id="h-divider"></div>
 
     <div id="news-panel">
-      <div id="news-tabs">
-        <button class="news-tab active" data-handle="CoinMarketCap">CoinMarketCap</button>
-        <button class="news-tab" data-handle="MercadoBitcoin">Mercado Bitcoin</button>
-        <button class="news-tab" data-handle="PortaldoBitcoin">Portal do Bitcoin</button>
-        <button class="news-tab" data-handle="agouvinhas">@agouvinhas</button>
+      <div id="news-header">
+        <span>📡 FEED X/TWITTER</span>
+        <span id="news-status">buscando…</span>
       </div>
-      <div id="news-frames"></div>
+      <div id="news-feed">
+        <div class="feed-placeholder">
+          <span>Carregando feed…</span>
+          <small>@CoinMarketCap · @MercadoBitcoin · @PortaldoBitcoin · @agouvinhas</small>
+        </div>
+      </div>
     </div>
 
   </div>
@@ -568,17 +621,11 @@ function renderHeatmap() {
 
   const root = d3.hierarchy(buildHierarchy())
     .sum(d => d.value || 0)
-    .sort((a, b) => {
-      // Categorias (depth 1): respeitar CAT_ORDER
-      if (a.depth === 1 && b.depth === 1)
-        return CAT_ORDER.indexOf(a.data.name) - CAT_ORDER.indexOf(b.data.name);
-      // Moedas (depth 2): por volume descrescente
-      return b.value - a.value;
-    });
+    .sort((a, b) => b.value - a.value); // volume puro em todos os níveis
 
   d3.treemap()
     .size([W, H])
-    .paddingOuter(2).paddingTop(16).paddingInner(1)
+    .paddingOuter(2).paddingTop(16).paddingInner(0)
     .round(true)(root);
 
   const layer = document.createElement('div');
@@ -748,46 +795,195 @@ function resizeChart() {
 }
 
 // ════════════════════════════════════════════════════════════════
-//  News — Twitter / X feeds
+//  News — Feed unificado via RSS
 // ════════════════════════════════════════════════════════════════
 
-const FEEDS = [
-  { handle: 'CoinMarketCap',   label: 'CoinMarketCap'    },
-  { handle: 'MercadoBitcoin',  label: 'Mercado Bitcoin'  },
-  { handle: 'PortaldoBitcoin', label: 'Portal do Bitcoin' },
-  { handle: 'agouvinhas',      label: '@agouvinhas'       },
+// Fontes RSS confirmadas como funcionais via proxy
+const RSS_FEEDS = [
+  {
+    url:    'https://portaldobitcoin.uol.com.br/feed/',
+    name:   'Portal do Bitcoin',
+    handle: 'PortaldoBitcoin',
+    color:  '#F5A623',
+    avatar: 'https://unavatar.io/twitter/PortaldoBitcoin',
+  },
+  {
+    url:    'https://livecoins.com.br/feed/',
+    name:   'Livecoins',
+    handle: 'livecoins',
+    color:  '#00C9A7',
+    avatar: 'https://unavatar.io/twitter/livecoins',
+  },
+  {
+    url:    'https://decrypt.co/feed',
+    name:   'Decrypt',
+    handle: 'decryptmedia',
+    color:  '#7B5EA7',
+    avatar: 'https://unavatar.io/twitter/decryptmedia',
+  },
+  {
+    url:    'https://bitcoinmagazine.com/feed',
+    name:   'Bitcoin Magazine',
+    handle: 'BitcoinMagazine',
+    color:  '#F7931A',
+    avatar: 'https://unavatar.io/twitter/BitcoinMagazine',
+  },
 ];
 
-function initNewsPanel() {
-  const framesEl = document.getElementById('news-frames');
+let feedItems = [];
+let feedKnown = new Set();
 
-  FEEDS.forEach((feed, i) => {
-    const iframe     = document.createElement('iframe');
-    iframe.id        = `frame-${feed.handle}`;
-    iframe.className = 'news-frame' + (i === 0 ? ' active' : '');
-    iframe.title     = feed.label;
-    iframe.srcdoc    = `<!DOCTYPE html>
-<html><head><meta charset="utf-8">
-<style>*{margin:0;padding:0}body{background:#161b22;overflow-x:hidden}</style>
-</head><body>
-<a class="twitter-timeline"
-   data-theme="dark"
-   data-chrome="noheader nofooter noborders transparent"
-   href="https://twitter.com/${feed.handle}?ref_src=twsrc%5Etfw">Tweets by @${feed.handle}</a>
-<script async src="https://platform.twitter.com/widgets.js"><\/script>
-</body></html>`;
-    framesEl.appendChild(iframe);
-  });
+async function fetchRSSText(url) {
+  const proxyUrl = IS_PROXIED ? `/proxy?url=${encodeURIComponent(url)}` : url;
+  const ctrl = new AbortController();
+  const tid  = setTimeout(() => ctrl.abort(), 10_000);
+  try {
+    const r = await fetch(proxyUrl, { signal: ctrl.signal });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return await r.text();
+  } finally { clearTimeout(tid); }
+}
 
-  document.querySelectorAll('.news-tab').forEach(tab => {
-    tab.addEventListener('click', () => {
-      const handle = tab.dataset.handle;
-      document.querySelectorAll('.news-tab').forEach(t => t.classList.remove('active'));
-      document.querySelectorAll('.news-frame').forEach(f => f.classList.remove('active'));
-      tab.classList.add('active');
-      document.getElementById(`frame-${handle}`)?.classList.add('active');
+async function fetchOneFeed(feed) {
+  try {
+    const xml   = await fetchRSSText(feed.url);
+    const doc   = new DOMParser().parseFromString(xml, 'text/xml');
+    const items = [];
+
+    for (const item of doc.querySelectorAll('item')) {
+      const guid    = item.querySelector('guid')?.textContent?.trim() || '';
+      const pubDate = item.querySelector('pubDate')?.textContent || '';
+      const link    = item.getElementsByTagName('link')[0]?.textContent?.trim() || '';
+
+      // Título limpo
+      const title = item.querySelector('title')?.textContent?.trim() || '';
+
+      // Resumo: description HTML → texto puro
+      const descEl = item.querySelector('description');
+      let summary = '';
+      if (descEl) {
+        const tmp = document.createElement('div');
+        tmp.innerHTML = descEl.textContent || '';
+        summary = (tmp.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 300);
+      }
+
+      if (!title) continue;
+      const id = guid || link || `${feed.handle}-${pubDate}`;
+      items.push({
+        id,
+        title,
+        summary,
+        url:  link,
+        time: pubDate ? new Date(pubDate) : new Date(0),
+        feed,
+      });
+    }
+    return items.slice(0, 20);
+  } catch (err) {
+    console.warn(`[Feed] Falha em ${feed.handle}:`, err.message);
+    return [];
+  }
+}
+
+async function refreshNewsFeeds() {
+  const statusEl = document.getElementById('news-status');
+  if (statusEl) statusEl.textContent = 'atualizando…';
+
+  const results = await Promise.allSettled(RSS_FEEDS.map(fetchOneFeed));
+  const fresh   = results.flatMap(r => r.status === 'fulfilled' ? r.value : []);
+
+  if (!fresh.length) {
+    if (statusEl) statusEl.textContent = 'sem dados';
+    const feed = document.getElementById('news-feed');
+    if (feed && !feed.querySelector('.tweet-card'))
+      feed.innerHTML = `<div class="feed-placeholder">
+        <span>Feed indisponível</span>
+        <small>Verifique a conexão com a internet e tente novamente.</small>
+      </div>`;
+    return;
+  }
+
+  fresh.sort((a, b) => b.time - a.time);
+
+  const newItems = fresh.filter(t => !feedKnown.has(t.id));
+  newItems.forEach(t => feedKnown.add(t.id));
+  feedItems = fresh.slice(0, 80);
+
+  const now = new Date();
+  if (statusEl) statusEl.textContent =
+    `${now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} · ${feedItems.length} posts`;
+
+  renderFeed(newItems);
+}
+
+function renderFeed(newItems) {
+  const feed = document.getElementById('news-feed');
+  if (!feed) return;
+
+  const placeholder = feed.querySelector('.feed-placeholder');
+  if (placeholder) placeholder.remove();
+
+  if (feed.children.length === 0) {
+    // Carga inicial
+    feedItems.forEach((item, i) => {
+      const card = makeCard(item);
+      feed.appendChild(card);
+      setTimeout(() => card.classList.add('show'), i * 30);
     });
-  });
+  } else if (newItems.length > 0) {
+    // Novos posts: slide-in do topo
+    [...newItems].reverse().forEach(item => {
+      const card = makeCard(item);
+      feed.insertBefore(card, feed.firstChild);
+      requestAnimationFrame(() => requestAnimationFrame(() => card.classList.add('show')));
+    });
+    while (feed.children.length > 80) feed.removeChild(feed.lastChild);
+  }
+}
+
+function makeCard(item) {
+  const { name, handle, color, avatar } = item.feed;
+  const ago      = timeAgo(item.time);
+  const initials = name.charAt(0).toUpperCase();
+
+  const card = document.createElement('div');
+  card.className = 'tweet-card';
+  card.innerHTML = `
+    <div class="tw-avatar">
+      <img src="${avatar}" alt="${name}"
+           onerror="this.style.display='none';this.parentElement.querySelector('.tw-init').style.display='flex'">
+      <span class="tw-init" style="display:none;color:${color}">${initials}</span>
+    </div>
+    <div class="tw-body">
+      <div class="tw-meta">
+        <span class="tw-name" style="color:${color}">${name}</span>
+        <span class="tw-handle">@${handle}</span>
+        <span class="tw-dot">·</span>
+        <span class="tw-time" title="${item.time.toLocaleString('pt-BR')}">${ago}</span>
+      </div>
+      <div class="tw-text tw-title">${escHtml(item.title)}</div>
+      ${item.summary ? `<div class="tw-text tw-summary">${escHtml(item.summary)}</div>` : ''}
+    </div>`;
+
+  if (item.url) card.addEventListener('click', () => window.open(item.url, '_blank'));
+  return card;
+}
+
+function timeAgo(date) {
+  const s = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (s < 60)    return `${s}s`;
+  if (s < 3600)  return `${Math.floor(s / 60)}m`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h`;
+  return `${Math.floor(s / 86400)}d`;
+}
+
+function escHtml(t) {
+  return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function initNewsPanel() {
+  refreshNewsFeeds();
+  setInterval(refreshNewsFeeds, 3 * 60 * 1000); // a cada 3 minutos
 }
 
 // ════════════════════════════════════════════════════════════════

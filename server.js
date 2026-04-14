@@ -109,6 +109,57 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // Proxy genérico para RSS/JSON externos — com redirect-following (max 5 hops)
+  if (pathname === '/proxy') {
+    const urlParam = new URLSearchParams(parsed.search || '').get('url');
+    if (!urlParam) {
+      setCORSHeaders(res); res.writeHead(400);
+      res.end('{"error":"Missing url"}'); return;
+    }
+    let startUrl;
+    try { startUrl = new URL(urlParam); } catch {
+      setCORSHeaders(res); res.writeHead(400);
+      res.end('{"error":"Invalid URL"}'); return;
+    }
+
+    function doRequest(targetUrl, hopsLeft) {
+      const lib  = targetUrl.protocol === 'https:' ? https : http;
+      const port = targetUrl.protocol === 'https:' ? 443 : 80;
+      const req  = lib.request({
+        hostname: targetUrl.hostname,
+        port,
+        path:    (targetUrl.pathname || '/') + (targetUrl.search || ''),
+        method:  'GET',
+        headers: { 'User-Agent': 'CryptoBoard-Proxy/1.0', 'Accept': '*/*' },
+        timeout: 9000,
+        rejectUnauthorized: false,
+      }, (remote) => {
+        const loc = remote.headers['location'];
+        if ([301,302,303,307,308].includes(remote.statusCode) && loc && hopsLeft > 0) {
+          remote.resume(); // discard body
+          try { doRequest(new URL(loc, targetUrl.href), hopsLeft - 1); }
+          catch { setCORSHeaders(res); res.writeHead(502); res.end('{"error":"bad redirect"}'); }
+          return;
+        }
+        setCORSHeaders(res);
+        res.writeHead(remote.statusCode, {
+          'Content-Type': remote.headers['content-type'] || 'text/plain',
+        });
+        remote.pipe(res, { end: true });
+      });
+      req.on('timeout', () => {
+        req.destroy();
+        if (!res.headersSent) { setCORSHeaders(res); res.writeHead(504); res.end('{"error":"timeout"}'); }
+      });
+      req.on('error', (err) => {
+        if (!res.headersSent) { setCORSHeaders(res); res.writeHead(502); res.end(`{"error":"${err.message}"}`); }
+      });
+      req.end();
+    }
+    doRequest(startUrl, 5);
+    return;
+  }
+
   // Servir index.html na raiz
   if (pathname === '/' || pathname === '/index.html') {
     fs.readFile(STATIC, (err, data) => {
