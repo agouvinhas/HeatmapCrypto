@@ -51,15 +51,15 @@
 
     /* ── Fear & Greed widget ────────────────────────────────── */
     #fg-widget {
-      display: flex; align-items: center; gap: 7px;
-      padding: 0 12px; flex-shrink: 0;
+      display: flex; align-items: center; gap: 8px;
+      padding: 0 14px; flex-shrink: 0;
       border-left: 1px solid #30363d;
       border-right: 1px solid #30363d;
       height: 100%; margin: 0 4px;
     }
     #fg-text  { display: flex; flex-direction: column; line-height: 1.25; }
     #fg-value { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; color: #fff; }
-    #fg-label { font-size: 9px; color: rgba(255,255,255,.4); white-space: nowrap; }
+    #fg-label { font-size: 9px; color: rgba(255,255,255,.4); white-space: nowrap; max-width: 68px; }
     #refresh-bar {
       position: absolute; bottom: 0; left: 0;
       height: 2px; width: 0%; background: #F7931A;
@@ -315,21 +315,27 @@
   <div id="header-right">
     <!-- Fear & Greed Index -->
     <div id="fg-widget">
-      <svg width="64" height="38" viewBox="0 0 64 38" style="overflow:visible;flex-shrink:0">
-        <!-- background track -->
-        <path d="M 4 34 A 28 28 0 0 0 60 34" fill="none" stroke="rgba(255,255,255,.07)" stroke-width="6" stroke-linecap="butt"/>
+      <!-- Velocímetro: cx=40, cy=42, r=30, stroke-width=10 -->
+      <svg width="80" height="46" viewBox="0 0 80 46" style="overflow:visible;flex-shrink:0">
+        <!-- Track escuro de fundo -->
+        <path d="M 10 42 A 30 30 0 0 0 70 42" fill="none" stroke="rgba(255,255,255,.09)" stroke-width="10" stroke-linecap="butt"/>
         <!-- Extreme Fear 0–25% -->
-        <path d="M 4 34 A 28 28 0 0 0 12.2 14.2" fill="none" stroke="#c0392b" stroke-width="6" stroke-linecap="butt"/>
+        <path d="M 10 42 A 30 30 0 0 0 18.8 20.8" fill="none" stroke="#e74c3c" stroke-width="10" stroke-linecap="butt"/>
         <!-- Fear 25–46% -->
-        <path d="M 12.2 14.2 A 28 28 0 0 0 28.5 6.2" fill="none" stroke="#e67e22" stroke-width="6" stroke-linecap="butt"/>
+        <path d="M 18.8 20.8 A 30 30 0 0 0 36.2 12.2" fill="none" stroke="#e67e22" stroke-width="10" stroke-linecap="butt"/>
         <!-- Neutral 46–54% -->
-        <path d="M 28.5 6.2 A 28 28 0 0 0 35.5 6.2" fill="none" stroke="#f1c40f" stroke-width="6" stroke-linecap="butt"/>
+        <path d="M 36.2 12.2 A 30 30 0 0 0 43.8 12.2" fill="none" stroke="#f1c40f" stroke-width="10" stroke-linecap="butt"/>
         <!-- Greed 54–75% -->
-        <path d="M 35.5 6.2 A 28 28 0 0 0 51.8 14.2" fill="none" stroke="#2ecc71" stroke-width="6" stroke-linecap="butt"/>
+        <path d="M 43.8 12.2 A 30 30 0 0 0 61.2 20.8" fill="none" stroke="#2ecc71" stroke-width="10" stroke-linecap="butt"/>
         <!-- Extreme Greed 75–100% -->
-        <path d="M 51.8 14.2 A 28 28 0 0 0 60 34" fill="none" stroke="#27ae60" stroke-width="6" stroke-linecap="butt"/>
-        <!-- needle dot (default: value=50 → top) -->
-        <circle id="fg-dot" cx="32" cy="6" r="4" fill="#fff" stroke="#161b22" stroke-width="2"/>
+        <path d="M 61.2 20.8 A 30 30 0 0 0 70 42" fill="none" stroke="#27ae60" stroke-width="10" stroke-linecap="butt"/>
+        <!-- Sombra do ponteiro -->
+        <line id="fg-needle-shadow" x1="41" y1="43" x2="41" y2="17" stroke="rgba(0,0,0,.45)" stroke-width="2.5" stroke-linecap="round"/>
+        <!-- Ponteiro (default: 50 → topo) -->
+        <line id="fg-needle" x1="40" y1="42" x2="40" y2="16" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round"/>
+        <!-- Pino central -->
+        <circle cx="40" cy="42" r="4.5" fill="#e0e0e0" stroke="#161b22" stroke-width="1.5"/>
+        <circle cx="40" cy="42" r="2.2" fill="#161b22"/>
       </svg>
       <div id="fg-text">
         <span id="fg-value">—</span>
@@ -1086,14 +1092,22 @@ function initNewsPanel() {
 // ════════════════════════════════════════════════════════════════
 
 function renderFearGreed(value, label) {
-  // Posição do ponto no arco: v=0 → 180°, v=100 → 0°
-  // cx=32, cy=34, r=28
-  const theta = (180 - value * 1.8) * Math.PI / 180;
-  const x = (32 + 28 * Math.cos(theta)).toFixed(1);
-  const y = (34 - 28 * Math.sin(theta)).toFixed(1);
+  // Velocímetro: cx=40, cy=42, r=30 (arco); ponteiro r=26
+  // v=0 → θ=180° (esquerda), v=100 → θ=0° (direita)
+  const theta  = (180 - value * 1.8) * Math.PI / 180;
+  const r      = 26;
+  const cx = 40, cy = 42;
+  const x2 = (cx + r * Math.cos(theta)).toFixed(1);
+  const y2 = (cy - r * Math.sin(theta)).toFixed(1);
 
-  const dot = document.getElementById('fg-dot');
-  if (dot) { dot.setAttribute('cx', x); dot.setAttribute('cy', y); }
+  const needle = document.getElementById('fg-needle');
+  if (needle) { needle.setAttribute('x2', x2); needle.setAttribute('y2', y2); }
+
+  const shadow = document.getElementById('fg-needle-shadow');
+  if (shadow) {
+    shadow.setAttribute('x2', (cx + r * Math.cos(theta) + 1).toFixed(1));
+    shadow.setAttribute('y2', (cy - r * Math.sin(theta) + 1).toFixed(1));
+  }
 
   const valEl = document.getElementById('fg-value');
   if (valEl) {
