@@ -317,8 +317,8 @@
     <div id="fg-widget">
       <!-- Velocímetro: cx=40, cy=42, r=30, stroke-width=10 -->
       <svg width="80" height="46" viewBox="0 0 80 46" style="overflow:visible;flex-shrink:0">
-        <!-- Track escuro de fundo -->
-        <path d="M 10 42 A 30 30 0 0 0 70 42" fill="none" stroke="rgba(255,255,255,.09)" stroke-width="10" stroke-linecap="butt"/>
+        <!-- Track escuro base (garante continuidade visual) -->
+        <path d="M 10 42 A 30 30 0 0 0 70 42" fill="none" stroke="#1e2530" stroke-width="10" stroke-linecap="round"/>
         <!-- Extreme Fear 0–25% -->
         <path d="M 10 42 A 30 30 0 0 0 18.8 20.8" fill="none" stroke="#e74c3c" stroke-width="10" stroke-linecap="butt"/>
         <!-- Fear 25–46% -->
@@ -329,6 +329,9 @@
         <path d="M 43.8 12.2 A 30 30 0 0 0 61.2 20.8" fill="none" stroke="#2ecc71" stroke-width="10" stroke-linecap="butt"/>
         <!-- Extreme Greed 75–100% -->
         <path d="M 61.2 20.8 A 30 30 0 0 0 70 42" fill="none" stroke="#27ae60" stroke-width="10" stroke-linecap="butt"/>
+        <!-- Tampas arredondadas nos extremos (r = stroke-width/2) -->
+        <circle cx="10" cy="42" r="5" fill="#e74c3c"/>
+        <circle cx="70" cy="42" r="5" fill="#27ae60"/>
         <!-- Sombra do ponteiro -->
         <line id="fg-needle-shadow" x1="41" y1="43" x2="41" y2="17" stroke="rgba(0,0,0,.45)" stroke-width="2.5" stroke-linecap="round"/>
         <!-- Ponteiro (default: 50 → topo) -->
@@ -1124,17 +1127,37 @@ function renderFearGreed(value, label) {
 }
 
 async function fetchFearGreed() {
+  // Primário: homepage do CMC embute o F&G no HTML (campo fearGreedIndexData)
   try {
-    const url = 'https://api.alternative.me/fng/?limit=1';
+    const url = 'https://coinmarketcap.com/';
     const endpoint = IS_PROXIED ? `/proxy?url=${encodeURIComponent(url)}` : url;
+    const ctrl = new AbortController();
+    const tid  = setTimeout(() => ctrl.abort(), 15_000);
+    let html;
+    try {
+      const r = await fetch(endpoint, { signal: ctrl.signal });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      html = await r.text();
+    } finally { clearTimeout(tid); }
+
+    const m = html.match(/"fearGreedIndexData":\{"currentIndex":\{"score":(\d+),"maxScore":\d+,"name":"([^"]+)"/);
+    if (m) {
+      renderFearGreed(parseInt(m[1], 10), m[2]);
+      return;
+    }
+    throw new Error('Padrão não encontrado no HTML do CMC');
+  } catch (err) {
+    console.warn('[FearGreed] CMC scrape falhou, usando Alternative.me:', err.message);
+  }
+  // Fallback: Alternative.me
+  try {
+    const altUrl = 'https://api.alternative.me/fng/?limit=1';
+    const endpoint = IS_PROXIED ? `/proxy?url=${encodeURIComponent(altUrl)}` : altUrl;
     const data = await fetchJSON(endpoint, 10_000);
     const entry = data?.data?.[0];
-    if (!entry) return;
-    const val = parseInt(entry.value, 10);
-    const lbl = entry.value_classification || '';
-    if (!isNaN(val)) renderFearGreed(val, lbl);
+    if (entry) renderFearGreed(parseInt(entry.value, 10), entry.value_classification || '');
   } catch (err) {
-    console.warn('[FearGreed] Erro:', err.message);
+    console.warn('[FearGreed] Alternative.me falhou:', err.message);
   }
 }
 
