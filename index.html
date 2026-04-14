@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Crypto Board — Mercado Bitcoin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      background: #0D1117;
+      color: #FFFFFF;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      overflow: hidden;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    /* ── Header ──────────────────────────────────────────────── */
+    #header {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      height: 56px;
+      background: #161b22;
+      border-bottom: 1px solid #21262d;
+      display: flex;
+      align-items: center;
+      padding: 0 20px;
+      gap: 0;
+      z-index: 100;
+    }
+
+    #header-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    #logo-svg {
+      height: 34px;
+      width: auto;
+      flex-shrink: 0;
+    }
+
+    #header-sep {
+      width: 1px;
+      height: 22px;
+      background: #30363d;
+      margin: 0 12px;
+    }
+
+    #header-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: rgba(255,255,255,0.85);
+      letter-spacing: 0.01em;
+    }
+
+    #legend {
+      margin-left: 20px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 10px;
+      color: rgba(255,255,255,0.45);
+      white-space: nowrap;
+    }
+
+    .legend-swatch {
+      width: 10px;
+      height: 10px;
+      border-radius: 2px;
+      flex-shrink: 0;
+    }
+
+    #header-right {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    #coin-count {
+      font-size: 11px;
+      color: rgba(255,255,255,0.35);
+    }
+
+    #last-update {
+      font-size: 11px;
+      color: rgba(255,255,255,0.5);
+      font-variant-numeric: tabular-nums;
+    }
+
+    #status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #3fb950;
+      flex-shrink: 0;
+      transition: background 0.4s;
+    }
+    #status-dot.error   { background: #f85149; }
+    #status-dot.loading { background: #F7931A; animation: blink 1s ease-in-out infinite; }
+
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.25; }
+    }
+
+    /* ── Heatmap container ───────────────────────────────────── */
+    #heatmap {
+      position: fixed;
+      top: 56px; left: 0; right: 0; bottom: 0;
+    }
+
+    /* ── Category label ──────────────────────────────────────── */
+    .cat-label {
+      position: absolute;
+      font-size: 10px;
+      font-weight: 600;
+      color: rgba(255,255,255,0.35);
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      pointer-events: none;
+      z-index: 4;
+      overflow: hidden;
+      white-space: nowrap;
+      padding: 2px 5px;
+      line-height: 14px;
+    }
+
+    /* ── Coin cell ───────────────────────────────────────────── */
+    .coin-cell {
+      position: absolute;
+      overflow: hidden;
+      border: 1px solid rgba(0,0,0,0.35);
+      transition: filter 0.15s, z-index 0s;
+      cursor: default;
+    }
+
+    .coin-cell:hover {
+      filter: brightness(1.25) saturate(1.1);
+      z-index: 10;
+      border-color: rgba(255,255,255,0.2);
+    }
+
+    .coin-content {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 3px 4px;
+      gap: 1px;
+      text-align: center;
+    }
+
+    .c-sym {
+      font-weight: 700;
+      line-height: 1.1;
+      white-space: nowrap;
+      text-shadow: 0 1px 4px rgba(0,0,0,0.7);
+    }
+
+    .c-price {
+      font-weight: 400;
+      color: rgba(255,255,255,0.85);
+      white-space: nowrap;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.7);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .c-change {
+      font-weight: 700;
+      white-space: nowrap;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.7);
+    }
+
+    /* ── Loading overlay ─────────────────────────────────────── */
+    #overlay {
+      position: fixed;
+      inset: 56px 0 0 0;
+      background: #0D1117;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 18px;
+      z-index: 50;
+      transition: opacity 0.4s;
+    }
+    #overlay.fade-out { opacity: 0; pointer-events: none; }
+    #overlay.hidden   { display: none; }
+
+    .spinner {
+      width: 44px;
+      height: 44px;
+      border: 3px solid rgba(247,147,26,0.15);
+      border-top-color: #F7931A;
+      border-radius: 50%;
+      animation: spin 0.75s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    #overlay-msg {
+      font-size: 13px;
+      color: rgba(255,255,255,0.5);
+    }
+
+    /* ── CORS notice ─────────────────────────────────────────── */
+    #cors-notice {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      background: #1c1917;
+      border-top: 1px solid #F7931A;
+      padding: 10px 20px;
+      font-size: 11.5px;
+      color: rgba(255,255,255,0.65);
+      z-index: 200;
+      display: none;
+      line-height: 1.6;
+    }
+    #cors-notice code {
+      background: #0D1117;
+      color: #F7931A;
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-size: 11px;
+    }
+    #cors-notice button {
+      float: right;
+      background: none;
+      border: none;
+      color: rgba(255,255,255,0.4);
+      cursor: pointer;
+      font-size: 16px;
+      line-height: 1;
+      padding: 0 4px;
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Header ────────────────────────────────────────────────── -->
+<div id="header">
+  <div id="header-left">
+    <svg id="logo-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Mercado Bitcoin">
+      <polygon points="50,3 90.7,26.5 90.7,73.5 50,97 9.3,73.5 9.3,26.5" fill="#E85A2A"/>
+      <text x="50" y="50" text-anchor="middle" dominant-baseline="central"
+            fill="white" font-family="Arial Black,'Helvetica Neue',sans-serif"
+            font-size="34" font-weight="900" letter-spacing="1">MB</text>
+    </svg>
+    <div id="header-sep"></div>
+    <span id="header-title">Crypto Board</span>
+    <div id="legend">
+      <div class="legend-item"><div class="legend-swatch" style="background:#1a6b3a"></div>&gt;+5%</div>
+      <div class="legend-item"><div class="legend-swatch" style="background:#1e8c3e"></div>0~+5%</div>
+      <div class="legend-item"><div class="legend-swatch" style="background:#8c1e1e"></div>-5~0%</div>
+      <div class="legend-item"><div class="legend-swatch" style="background:#6b1a1a"></div>&lt;-5%</div>
+    </div>
+  </div>
+  <div id="header-right">
+    <span id="coin-count"></span>
+    <span id="last-update">Carregando...</span>
+    <div id="status-dot" class="loading"></div>
+  </div>
+</div>
+
+<!-- ── Heatmap ────────────────────────────────────────────────── -->
+<div id="heatmap"></div>
+
+<!-- ── Loading overlay ───────────────────────────────────────── -->
+<div id="overlay">
+  <div class="spinner"></div>
+  <span id="overlay-msg">Buscando dados do Mercado Bitcoin…</span>
+</div>
+
+<!-- ── CORS notice ────────────────────────────────────────────── -->
+<div id="cors-notice">
+  <button onclick="this.parentElement.style.display='none'">✕</button>
+  <strong style="color:#F7931A">⚠ Erro de CORS</strong> — o browser bloqueou as requisições à API.<br>
+  Opção 1 (sem instalar nada):&nbsp;
+  <code>google-chrome --kiosk --disable-web-security --user-data-dir=/tmp/chrome-kiosk index.html</code><br>
+  Opção 2 (proxy local):&nbsp;
+  <code>node server.js</code>&nbsp; depois acesse&nbsp;<code>http://localhost:3000</code>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+//  Configuração
+// ═══════════════════════════════════════════════════════════════
+
+const REFRESH_MS    = 30_000;   // intervalo de atualização
+const FETCH_TIMEOUT = 10_000;   // timeout por requisição de lote
+const TICKER_BATCH  = 100;      // símbolos por chamada ao endpoint /tickers
+
+// Padrões para excluir Renda Fixa Digital e instrumentos não-cripto.
+// Regra principal: base com dígitos = token RFD (ex: ROOF04, JEITTO21, PADOV07).
+// Complemento: prefixos conhecidos de RFD/não-cripto.
+const EXCLUDE_RE = /RFD|YIELD|YDIC|MBPRF|DREX|FIXA|CDB|LCI|LCA|DEBENTURE|FGTS|CARTAO|CONSRC|BILLOR|TOKENMB|MORECOMI|MORECOMMI/i;
+
+// ── Categorias ────────────────────────────────────────────────────────────────
+const CAT_ORDER = ['BTC', 'Majors', 'Meme Coins', 'Stables', 'Demais'];
+
+const CAT_BTC = new Set(['BTC']);
+
+const CAT_MAJORS = new Set(['ETH','SOL','XRP','CHZ','TRX']);
+
+const CAT_MEME = new Set([
+  // Mencionados pelo usuário
+  'PEPE','DOGE','SHIB','TRUMP',
+  // Outros meme coins conhecidos
+  'BONK','WIF','FLOKI','MEME','TURBO','BOME','MOG','NEIRO','POPCAT',
+  'BABYDOGE','COQ','CAT','CATI','HMSTR','PIXEL','SLERF','MYRO','SAMO',
+  'HYPE','BRETT','TOSHI','MOTHER','PONKE','FWOG','GIGA','PNUT',
+]);
+
+const CAT_STABLES = new Set([
+  // Mencionados pelo usuário
+  'USDC','USDT','EUROC','EURC','PAXG','PAX','XAUT','GYEN',
+  // Outros stablecoins / ativos lastreados
+  'BUSD','DAI','TUSD','USDP','GUSD','FRAX','USDD','LUSD',
+  'EURT','USDM','USDE','BRLA','BRZ',
+]);
+
+// Base da API: se servido via localhost (server.js), usa proxy local;
+// caso contrário usa a URL pública (Chrome com --disable-web-security)
+const IS_PROXIED =
+  (window.location.protocol === 'http:' || window.location.protocol === 'https:') &&
+  (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
+const API = IS_PROXIED ? '' : 'https://api.mercadobitcoin.net';
+
+// ═══════════════════════════════════════════════════════════════
+//  Utilitários
+// ═══════════════════════════════════════════════════════════════
+
+function getColor(change) {
+  if (change === null || change === undefined || isNaN(change)) return '#2A2A2A';
+  if (change > 5)   return '#1a6b3a';
+  if (change >= 0)  return '#1e8c3e';
+  if (change >= -5) return '#8c1e1e';
+  return '#6b1a1a';
+}
+
+function fmtBRL(v) {
+  if (v === null || v === undefined || isNaN(v)) return '—';
+  // Preços altos: sem casas decimais; baixos: até 6 casas
+  const decimals = v >= 1000 ? 2 : v >= 1 ? 4 : 6;
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency', currency: 'BRL',
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  }).format(v);
+}
+
+function fmtPct(v) {
+  if (v === null || v === undefined || isNaN(v)) return '—';
+  const arrow = v >= 0 ? '▲' : '▼';
+  return `${arrow} ${Math.abs(v).toFixed(2)}%`;
+}
+
+function fmtTime(d) {
+  return d.toLocaleTimeString('pt-BR');
+}
+
+async function fetchJSON(url, timeout = FETCH_TIMEOUT) {
+  const ctrl = new AbortController();
+  const tid  = setTimeout(() => ctrl.abort(), timeout);
+  try {
+    const res = await fetch(url, { signal: ctrl.signal });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+  } finally {
+    clearTimeout(tid);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Filtragem de símbolos
+// ═══════════════════════════════════════════════════════════════
+
+function isCryptoBRL(sym) {
+  if (typeof sym !== 'string') return false;
+  if (!sym.endsWith('-BRL'))    return false;
+  const base = sym.replace(/-BRL$/, '');
+  // Tokens de Renda Fixa Digital quase sempre contêm dígitos no símbolo base
+  if (/\d/.test(base))       return false;
+  if (EXCLUDE_RE.test(base)) return false;
+  return true;  // stablecoins e meme coins incluídos — cada um tem sua categoria
+}
+
+function category(base) {
+  if (CAT_BTC.has(base))     return 'BTC';
+  if (CAT_STABLES.has(base)) return 'Stables';
+  if (CAT_MAJORS.has(base))  return 'Majors';
+  if (CAT_MEME.has(base))    return 'Meme Coins';
+  return 'Demais';
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Busca de dados
+// ═══════════════════════════════════════════════════════════════
+
+async function fetchSymbols() {
+  const data = await fetchJSON(`${API}/api/v4/symbols`, 10_000);
+
+  let list;
+  if (Array.isArray(data))                      list = data;
+  else if (Array.isArray(data.symbol))           list = data.symbol;   // MB v4 usa "symbol" (singular)
+  else if (Array.isArray(data.symbols))          list = data.symbols;
+  else if (data && typeof data === 'object')     list = Object.keys(data);
+  else throw new Error('Formato inesperado do endpoint /symbols');
+
+  return list
+    .map(s => (typeof s === 'string' ? s : (s.symbol || s.pair || '')))
+    .filter(Boolean);
+}
+
+// Busca tickers em lote usando /api/v4/tickers?symbols=A,B,C,...
+// Retorna Map<symbol, tickerObj>
+async function fetchTickersBatch(symbols) {
+  const map = new Map();
+  for (let i = 0; i < symbols.length; i += TICKER_BATCH) {
+    const batch = symbols.slice(i, i + TICKER_BATCH);
+    try {
+      const data = await fetchJSON(
+        `${API}/api/v4/tickers?symbols=${batch.join(',')}`,
+        FETCH_TIMEOUT
+      );
+      const list = Array.isArray(data) ? data : (data.tickers || []);
+      for (const t of list) {
+        const sym = t.pair || t.symbol;
+        if (!sym) continue;
+        map.set(sym, {
+          last: parseFloat(t.last)                      || 0,
+          open: parseFloat(t.open || t.open_24h || '0') || 0,
+          high: parseFloat(t.high)                      || 0,
+          low:  parseFloat(t.low)                       || 0,
+          vol:  parseFloat(t.vol  || t.volume || '0')   || 0,
+        });
+      }
+    } catch (err) {
+      console.warn(`[CryptoBoard] Falha no lote ${i}–${i + TICKER_BATCH}:`, err.message);
+    }
+  }
+  return map;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Estado global
+// ═══════════════════════════════════════════════════════════════
+
+let coins      = [];
+let firstLoad  = true;
+let refreshTid = null;
+
+// ═══════════════════════════════════════════════════════════════
+//  Carregamento principal
+// ═══════════════════════════════════════════════════════════════
+
+async function loadData() {
+  setStatus('loading');
+  try {
+    // 1. Símbolos disponíveis
+    const allSyms    = await fetchSymbols();
+    const cryptoSyms = allSyms.filter(isCryptoBRL);
+
+    setOverlayMsg(`Buscando ${cryptoSyms.length} tickers…`);
+
+    // 2. Tickers em lote (endpoint /api/v4/tickers?symbols=...)
+    const tickerMap = await fetchTickersBatch(cryptoSyms);
+
+    // 3. Processar
+    const newCoins = [];
+
+    for (const symbol of cryptoSyms) {
+      const base = symbol.replace(/-BRL$/, '');
+      const t    = tickerMap.get(symbol);
+
+      if (!t) {
+        // Ticker não retornou — bloco cinza apenas para BTC e Majors conhecidos
+        const cat = category(base);
+        if (cat === 'BTC' || cat === 'Majors') {
+          newCoins.push({
+            symbol, base,
+            price: null, change: null,
+            volume: 0, financialVol: 100,
+            available: false,
+            category: cat,
+          });
+        }
+        continue;
+      }
+
+      // Descartar volume zero
+      if (!t.vol || t.vol === 0) continue;
+
+      const change       = (t.open && t.open !== 0) ? ((t.last - t.open) / t.open) * 100 : null;
+      const financialVol = t.vol * t.last;
+
+      newCoins.push({
+        symbol, base,
+        price:  t.last,
+        change,
+        volume: t.vol,
+        financialVol,
+        available: true,
+        category: category(base),
+      });
+    }
+
+    coins = newCoins;
+    renderHeatmap();
+    setStatus('ok');
+    updateTimestamp(new Date());
+
+    const countEl = document.getElementById('coin-count');
+    countEl.textContent = `${coins.filter(c => c.available).length} ativos`;
+
+    if (firstLoad) {
+      firstLoad = false;
+      const ov = document.getElementById('overlay');
+      ov.classList.add('fade-out');
+      setTimeout(() => ov.classList.add('hidden'), 450);
+    }
+  } catch (err) {
+    console.error('[CryptoBoard] Erro ao carregar dados:', err);
+    setStatus('error');
+
+    if (firstLoad) {
+      setOverlayMsg('Erro ao carregar dados. Verifique o console.');
+    }
+
+    // Detectar CORS
+    if (
+      err.message &&
+      (err.message.includes('Failed to fetch') ||
+       err.message.includes('NetworkError') ||
+       err.message.includes('Load failed'))
+    ) {
+      document.getElementById('cors-notice').style.display = 'block';
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  UI helpers
+// ═══════════════════════════════════════════════════════════════
+
+function setStatus(state) {
+  const dot = document.getElementById('status-dot');
+  dot.className = state; // 'ok' | 'error' | 'loading' — css handles colors
+}
+
+function setOverlayMsg(msg) {
+  const el = document.getElementById('overlay-msg');
+  if (el) el.textContent = msg;
+}
+
+function updateTimestamp(d) {
+  document.getElementById('last-update').textContent =
+    'Atualizado: ' + fmtTime(d);
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Renderização do treemap
+// ═══════════════════════════════════════════════════════════════
+
+function buildHierarchy() {
+  const cats = Object.fromEntries(CAT_ORDER.map(n => [n, []]));
+
+  for (const c of coins) {
+    (cats[c.category] ?? cats['Demais']).push(c);
+  }
+
+  const children = CAT_ORDER
+    .filter(name => cats[name].length > 0)
+    .map(name => ({
+      name,
+      children: cats[name].map(c => ({
+        ...c,
+        value: Math.max(c.financialVol, 100),
+      })),
+    }));
+
+  return { name: 'root', children };
+}
+
+function cellFonts(w, h) {
+  const m = Math.min(w, h);
+  return {
+    sym:    Math.min(Math.max(Math.floor(m * 0.26), 11), 38),
+    price:  Math.min(Math.max(Math.floor(w * 0.075), 9),  13),
+    change: Math.min(Math.max(Math.floor(m * 0.155), 9),  15),
+  };
+}
+
+function renderHeatmap() {
+  const container = document.getElementById('heatmap');
+  const W = container.clientWidth;
+  const H = container.clientHeight;
+
+  if (!W || !H || coins.length === 0) return;
+
+  // ── Layout D3 ────────────────────────────────────────────────
+  const root = d3.hierarchy(buildHierarchy())
+    .sum(d => d.value || 0)
+    .sort((a, b) => b.value - a.value);
+
+  d3.treemap()
+    .size([W, H])
+    .paddingOuter(5)
+    .paddingTop(17)   // espaço para rótulo da categoria
+    .paddingInner(2)
+    .round(true)(root);
+
+  // ── Renderizar ───────────────────────────────────────────────
+  container.innerHTML = '';
+
+  // Rótulos das categorias
+  root.children?.forEach(catNode => {
+    const lw = catNode.x1 - catNode.x0;
+    if (lw < 28) return;
+    const lbl = document.createElement('div');
+    lbl.className = 'cat-label';
+    lbl.textContent = catNode.data.name;
+    lbl.style.cssText = `left:${catNode.x0}px;top:${catNode.y0}px;width:${lw}px`;
+    container.appendChild(lbl);
+  });
+
+  // Volume total para calcular percentuais
+  const totalFinVol = coins.filter(c => c.available).reduce((s, c) => s + c.financialVol, 0);
+
+  // Células das moedas
+  root.leaves().forEach(leaf => {
+    const d = leaf.data;
+    const x = Math.round(leaf.x0);
+    const y = Math.round(leaf.y0);
+    const w = Math.round(leaf.x1 - leaf.x0);
+    const h = Math.round(leaf.y1 - leaf.y0);
+
+    if (w < 6 || h < 6) return;
+
+    const cell = document.createElement('div');
+    cell.className = 'coin-cell';
+    cell.style.cssText =
+      `left:${x}px;top:${y}px;width:${w}px;height:${h}px;background:${getColor(d.change)}`;
+
+    // Tooltip acessível
+    const tooltip = d.available
+      ? `${d.base}\nPreço: ${fmtBRL(d.price)}\nVariação 24h: ${fmtPct(d.change)}\nVol. fin.: ${fmtBRL(d.financialVol)}`
+      : `${d.base}\nDados indisponíveis`;
+    cell.title = tooltip;
+
+    // Moedas com ≥1% do volume total sempre mostram o ticker, mesmo em blocos pequenos
+    const volPct   = (d.available && totalFinVol > 0) ? (d.financialVol / totalFinVol * 100) : 0;
+    const mustShow = volPct >= 1;
+
+    const isTiny  = !mustShow && (w < 38 || h < 28);
+    const isSmall = w < 88 || h < 52;
+
+    if (!isTiny) {
+      const f = cellFonts(w, h);
+      let html = `<div class="coin-content">`;
+      html += `<span class="c-sym" style="font-size:${f.sym}px">${d.base}</span>`;
+
+      if (!isSmall && d.available && d.price !== null) {
+        html += `<span class="c-price" style="font-size:${f.price}px">${fmtBRL(d.price)}</span>`;
+      }
+
+      const changeText = d.available ? fmtPct(d.change) : '—';
+      html += `<span class="c-change" style="font-size:${f.change}px">${changeText}</span>`;
+      html += `</div>`;
+      cell.innerHTML = html;
+    } else if (mustShow) {
+      // Bloco pequeno mas representa ≥1% do volume: exibe só o ticker em fonte reduzida
+      const symSize = Math.max(Math.min(Math.floor(Math.min(w, h) * 0.38), 13), 7);
+      cell.innerHTML =
+        `<div class="coin-content"><span class="c-sym" style="font-size:${symSize}px">${d.base}</span></div>`;
+    }
+
+    container.appendChild(cell);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Redimensionamento responsivo
+// ═══════════════════════════════════════════════════════════════
+
+let resizeTid;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTid);
+  resizeTid = setTimeout(renderHeatmap, 180);
+});
+
+// ═══════════════════════════════════════════════════════════════
+//  Inicialização
+// ═══════════════════════════════════════════════════════════════
+
+loadData();
+refreshTid = setInterval(loadData, REFRESH_MS);
+</script>
+</body>
+</html>
