@@ -424,9 +424,9 @@ const CAT_STABLES = new Set([
   'EURT','USDM','USDE','BRLA','BRZ',
 ]);
 
-const IS_PROXIED =
-  (window.location.protocol === 'http:' || window.location.protocol === 'https:') &&
-  (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+// Proxy activo sempre que servido via HTTP/HTTPS (local ou Railway/produção).
+// Só false se aberto directamente como ficheiro (file://).
+const IS_PROXIED = window.location.protocol === 'http:' || window.location.protocol === 'https:';
 
 const API = IS_PROXIED ? '' : 'https://api.mercadobitcoin.net';
 
