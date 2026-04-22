@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Fundo escuro com cantos arredondados -->
+  <rect width="32" height="32" rx="5" fill="#161b22"/>
+
+  <!-- Célula dominante (BTC / cor MB) -->
+  <rect x="1" y="1" width="18" height="19" rx="2" fill="#E85A2A"/>
+
+  <!-- Coluna direita: verde (alta) + vermelho (baixa) -->
+  <rect x="21" y="1"  width="10" height="9" rx="1.5" fill="#27ae60"/>
+  <rect x="21" y="12" width="10" height="8" rx="1.5" fill="#c0392b"/>
+
+  <!-- Linha inferior: vermelho | verde | verde escuro -->
+  <rect x="1"  y="22" width="8"  height="9" rx="1.5" fill="#c0392b"/>
+  <rect x="11" y="22" width="8"  height="9" rx="1.5" fill="#27ae60"/>
+  <rect x="21" y="22" width="10" height="9" rx="1.5" fill="#1e8449"/>
+</svg>
