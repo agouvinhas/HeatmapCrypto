@@ -67,7 +67,7 @@
     /* ── App layout ─────────────────────────────────────────── */
     #app {
       position: fixed;
-      top: 68px; left: 0; right: 0; bottom: 0;
+      top: 68px; left: 0; right: 0; bottom: 44px;
       display: flex;
     }
 
@@ -293,6 +293,68 @@
     }
     #cors-notice code { background: #0D1117; color: #F7931A; padding: 1px 5px; border-radius: 3px; font-size: 11px; }
     #cors-notice button { float: right; background: none; border: none; color: rgba(255,255,255,.4); cursor: pointer; font-size: 16px; line-height: 1; padding: 0 4px; }
+
+    /* ── News Ticker ────────────────────────────────────────── */
+    #news-ticker {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      height: 44px;
+      background: #0d1117;
+      border-top: 2px solid #21262d;
+      overflow: hidden;
+      z-index: 200;
+      display: flex;
+      align-items: center;
+    }
+    #ticker-track {
+      width: 100%;
+      overflow: hidden;
+      height: 100%;
+      display: flex;
+      align-items: center;
+    }
+    #ticker-content {
+      display: flex;
+      align-items: center;
+      white-space: nowrap;
+      will-change: transform;
+    }
+    #ticker-content.running {
+      animation: ticker-scroll var(--ticker-duration, 180s) linear infinite;
+    }
+    #ticker-content.running:hover {
+      animation-play-state: paused;
+    }
+    @keyframes ticker-scroll {
+      from { transform: translateX(0); }
+      to   { transform: translateX(-50%); }
+    }
+    .ticker-item {
+      display: inline-flex;
+      align-items: center;
+      margin-right: 48px;
+      font-size: 13px;
+      font-family: Inter, -apple-system, sans-serif;
+    }
+    .ticker-source {
+      color: #F7931A;
+      font-weight: 700;
+      font-size: 11px;
+      letter-spacing: .5px;
+      text-transform: uppercase;
+      margin-right: 10px;
+      flex-shrink: 0;
+    }
+    .ticker-title {
+      color: rgba(255,255,255,.85);
+      font-weight: 400;
+      cursor: pointer;
+      text-decoration: none;
+    }
+    .ticker-title:hover {
+      color: #fff;
+      text-decoration: underline;
+    }
   </style>
 </head>
 <body>
@@ -367,7 +429,7 @@
     <div id="chart-panel">
       <div id="chart-header">
         <span id="chart-label" style="color:rgba(255,255,255,.45)">BTC/USDT · 5m · 7 dias &nbsp;·&nbsp; via Binance</span>
-        <span id="chart-price" style="margin-left:12px;font-weight:700;color:#fff"></span>
+        <span id="chart-price" style="margin-left:12px;font-weight:700;color:#fff;font-size:28px"></span>
         <span id="chart-change" style="margin-left:8px;font-weight:600"></span>
       </div>
       <div id="chart-container"></div>
@@ -929,6 +991,15 @@ const RSS_FEEDS = [
   },
 ];
 
+const TICKER_FEEDS = [
+  { url: 'https://feeds.reuters.com/reuters/topNews',                 name: 'Reuters'    },
+  { url: 'https://www.aljazeera.com/xml/rss/all.xml',                name: 'Al Jazeera' },
+  { url: 'https://rss.dw.com/xml/rss-en-all',                        name: 'DW'         },
+  { url: 'https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml',name: 'NYT'        },
+  { url: 'https://feeds.wsj.com/wsj/xml/rss/3_7085.xml',            name: 'WSJ'        },
+  { url: 'https://www.economist.com/finance-and-economics/rss.xml',  name: 'Economist'  },
+];
+
 let feedItems = [];
 let feedKnown = new Set();
 
@@ -1181,14 +1252,84 @@ window.addEventListener('resize', () => {
 });
 
 // ════════════════════════════════════════════════════════════════
+//  News Ticker (rodapé)
+// ════════════════════════════════════════════════════════════════
+
+async function initTicker() {
+  const results = await Promise.allSettled(
+    TICKER_FEEDS.map(async feed => {
+      const xml = await fetchRSSText(feed.url);
+      const doc = new DOMParser().parseFromString(xml, 'text/xml');
+      const items = [...doc.querySelectorAll('item')].slice(0, 15).map(item => ({
+        title: item.querySelector('title')?.textContent?.trim() || '',
+        url:   item.querySelector('link')?.textContent?.trim()
+              || item.querySelector('link')?.getAttribute('href') || '#',
+        feed,
+      })).filter(i => i.title);
+      return items;
+    })
+  );
+
+  // Recolhe todos os itens bem-sucedidos e embaralha
+  const all = results
+    .filter(r => r.status === 'fulfilled')
+    .flatMap(r => r.value);
+
+  if (!all.length) return;
+
+  // Embaralha (Fisher-Yates)
+  for (let i = all.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [all[i], all[j]] = [all[j], all[i]];
+  }
+
+  // Constrói HTML de um bloco de itens
+  function buildBlock(items) {
+    return items.map(item => `
+      <span class="ticker-item">
+        <span class="ticker-source">${item.feed.name}</span>
+        <a class="ticker-title" href="${item.url}" target="_blank" rel="noopener">${item.title}</a>
+      </span>
+      <span style="color:rgba(255,255,255,.15);margin-right:48px;font-size:20px">·</span>
+    `).join('');
+  }
+
+  const el = document.getElementById('ticker-content');
+  // Duplica o bloco para loop seamless (-50% = uma repetição completa)
+  el.innerHTML = buildBlock(all) + buildBlock(all);
+
+  // Calcula duração proporcional ao conteúdo (~280px/s)
+  const totalChars = all.reduce((s, i) => s + i.title.length + i.feed.name.length + 10, 0);
+  const pxPerChar  = 7.5;
+  const speed      = 280; // px/s
+  const duration   = Math.round((totalChars * pxPerChar) / speed);
+
+  el.classList.remove('running');
+  // Força reflow para reiniciar a animação ao atualizar
+  void el.offsetWidth;
+  el.style.setProperty('--ticker-duration', `${duration}s`);
+  // Precisa que a var CSS seja lida ANTES de adicionar a classe
+  el.style.animationDuration = `${duration}s`;
+  el.classList.add('running');
+}
+
+// ════════════════════════════════════════════════════════════════
 //  Inicialização
 // ════════════════════════════════════════════════════════════════
 
 initFearGreed();
 initNewsPanel();
+initTicker();
+setInterval(initTicker, 5 * 60 * 1000); // atualiza ticker a cada 5 min
 initBTCChart();
 loadData();
 setInterval(loadData, REFRESH_MS);
 </script>
+
+<div id="news-ticker">
+  <div id="ticker-track">
+    <div id="ticker-content"></div>
+  </div>
+</div>
 </body>
 </html>
