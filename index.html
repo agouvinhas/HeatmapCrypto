@@ -109,8 +109,8 @@
       overflow: hidden;
     }
     #chart-header {
-      height: 30px;
-      padding: 0 12px;
+      height: 44px;
+      padding: 6px 12px;
       display: flex;
       align-items: center;
       gap: 0;
@@ -333,7 +333,7 @@
       display: inline-flex;
       align-items: center;
       margin-right: 48px;
-      font-size: 13px;
+      font-size: 16px;
       font-family: Inter, -apple-system, sans-serif;
     }
     .ticker-source {
@@ -429,7 +429,7 @@
     <div id="chart-panel">
       <div id="chart-header">
         <span id="chart-label" style="color:rgba(255,255,255,.45)">BTC/USDT · 5m · 7 dias &nbsp;·&nbsp; via Binance</span>
-        <span id="chart-price" style="margin-left:12px;font-weight:700;color:#fff;font-size:28px"></span>
+        <span id="chart-price" style="margin-left:12px;font-weight:700;color:#fff;font-size:26px"></span>
         <span id="chart-change" style="margin-left:8px;font-weight:600"></span>
       </div>
       <div id="chart-container"></div>
@@ -1000,8 +1000,9 @@ const TICKER_FEEDS = [
   { url: 'https://www.economist.com/finance-and-economics/rss.xml',  name: 'Economist'  },
 ];
 
-let feedItems = [];
-let feedKnown = new Set();
+let feedItems        = [];
+let feedKnown        = new Set();
+let lastFeedActivity = Date.now();
 
 async function fetchRSSText(url) {
   const proxyUrl = IS_PROXIED ? `/proxy?url=${encodeURIComponent(url)}` : url;
@@ -1102,6 +1103,7 @@ function renderFeed(newItems) {
     });
   } else if (newItems.length > 0) {
     // Novos posts: slide-in do topo
+    lastFeedActivity = Date.now();
     [...newItems].reverse().forEach(item => {
       const card = makeCard(item);
       feed.insertBefore(card, feed.firstChild);
@@ -1109,6 +1111,27 @@ function renderFeed(newItems) {
     });
     while (feed.children.length > 80) feed.removeChild(feed.lastChild);
   }
+}
+
+// Recicla os últimos cards para o topo quando não chega novidade —
+// dá a aparência visual de movimento no feed
+function nudgeFeed() {
+  if (Date.now() - lastFeedActivity < 5 * 60 * 1000) return; // novidade recente, não precisa
+  const feed = document.getElementById('news-feed');
+  if (!feed) return;
+  const cards = [...feed.querySelectorAll('.tweet-card')];
+  if (cards.length < 4) return;
+
+  // Pega os 3 últimos e move para o topo com animação de slide-in
+  const toMove = cards.slice(-3).reverse();
+  toMove.forEach(card => {
+    card.classList.remove('show');
+    feed.removeChild(card);
+    feed.insertBefore(card, feed.firstChild);
+    requestAnimationFrame(() => requestAnimationFrame(() => card.classList.add('show')));
+  });
+
+  lastFeedActivity = Date.now();
 }
 
 function makeCard(item) {
@@ -1154,6 +1177,7 @@ function escHtml(t) {
 function initNewsPanel() {
   refreshNewsFeeds();
   setInterval(refreshNewsFeeds, 3 * 60 * 1000); // a cada 3 minutos
+  setInterval(nudgeFeed, 5 * 60 * 1000);        // recicla se não houver novidade em 5 min
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1301,7 +1325,7 @@ async function initTicker() {
   // Calcula duração proporcional ao conteúdo (~280px/s)
   const totalChars = all.reduce((s, i) => s + i.title.length + i.feed.name.length + 10, 0);
   const pxPerChar  = 7.5;
-  const speed      = 280; // px/s
+  const speed      = 50; // px/s
   const duration   = Math.round((totalChars * pxPerChar) / speed);
 
   el.classList.remove('running');
