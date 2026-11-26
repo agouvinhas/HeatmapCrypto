@@ -3,3 +3,5 @@
 btc_alert.log
 __pycache__/
 *.pyc
+heatmap.log
+.DS_Store

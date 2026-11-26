@@ -24,6 +24,11 @@ const path  = require('path');
 const url   = require('url');
 
 const PORT    = parseInt(process.env.PORT || '3000', 10);
+// Em deploy (Railway/Heroku e afins) a plataforma injeta PORT e exige bind
+// em 0.0.0.0 para receber tráfego externo. Rodando local, escuta só em
+// 127.0.0.1: o endpoint /proxy busca qualquer URL e não deve ficar aberto
+// para a rede. Defina HOST para sobrescrever.
+const HOST    = process.env.HOST || (process.env.PORT ? '0.0.0.0' : '127.0.0.1');
 const MB_HOST = 'api.mercadobitcoin.net';
 const MB_BASE = `/api/v4`;
 const STATIC  = path.join(__dirname, 'index.html');
@@ -196,11 +201,12 @@ const server = http.createServer((req, res) => {
   });
 });
 
-server.listen(PORT, '0.0.0.0', () => {
+server.listen(PORT, HOST, () => {
   console.log('');
   console.log('  ╔════════════════════════════════════════╗');
   console.log('  ║   Crypto Board — Proxy CORS ativo      ║');
   console.log(`  ║   http://localhost:${PORT}                  ║`);
+  console.log(`  escutando em ${HOST}:${PORT}`);
   console.log('  ╚════════════════════════════════════════╝');
   console.log('');
   console.log('  Modo kiosk:');
