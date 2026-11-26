@@ -42,6 +42,33 @@
     #legend       { margin-left: 16px; display: flex; align-items: center; gap: 10px; }
     .legend-item  { display: flex; align-items: center; gap: 4px; font-size: 10px; color: rgba(255,255,255,.45); }
     .legend-swatch{ width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+    /* ── Seletor de fonte de dados ───────────────────────────── */
+    #src-picker   {
+      margin-left: 16px; display: flex; align-items: center;
+      gap: 2px; padding: 2px; border-radius: 7px;
+      background: #0d1117; border: 1px solid #30363d; flex-shrink: 0;
+    }
+    .src-btn {
+      font: inherit; font-size: 11px; font-weight: 600; line-height: 1;
+      padding: 5px 10px; border: 0; border-radius: 5px; cursor: pointer;
+      background: transparent; color: rgba(255,255,255,.45);
+      transition: background .15s, color .15s;
+      white-space: nowrap;
+    }
+    .src-btn:hover:not(.active) { color: rgba(255,255,255,.75); background: #161b22; }
+    .src-btn.active { background: #F7931A; color: #0d1117; }
+    .src-btn.failed:not(.active) { color: #f85149; }
+    .src-btn.failed:not(.active)::after { content: ' ·'; }
+    .src-btn:disabled { cursor: progress; opacity: .6; }
+    #heatmap.switching { opacity: .3; transition: opacity .2s ease; }
+    #heatmap-msg {
+      position: absolute; inset: 0; display: none;
+      align-items: center; justify-content: center;
+      font-size: 15px; color: rgba(255,255,255,.4); text-align: center;
+      padding: 0 24px; z-index: 5;
+    }
+    #heatmap-msg.show { display: flex; }
+
     #header-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
     #coin-count   { font-size: 11px; color: rgba(255,255,255,.35); }
     #last-update  { font-size: 11px; color: rgba(255,255,255,.5); font-variant-numeric: tabular-nums; }
@@ -371,6 +398,7 @@
       <div class="legend-item"><div class="legend-swatch" style="background:#c0392b"></div>-5~0%</div>
       <div class="legend-item"><div class="legend-swatch" style="background:#922b21"></div>&lt;-5%</div>
     </div>
+    <div id="src-picker" role="group" aria-label="Fonte de dados"></div>
   </div>
   <div id="header-right">
     <!-- Fear & Greed Index — estilo velocímetro com segmentos arredondados -->
@@ -415,6 +443,7 @@
   <!-- Left: heatmap -->
   <div id="left-panel">
     <div id="heatmap"></div>
+    <div id="heatmap-msg"></div>
     <div id="overlay">
       <div class="spinner"></div>
       <span id="overlay-msg">Buscando dados do Mercado Bitcoin…</span>
@@ -493,6 +522,16 @@ const IS_PROXIED = window.location.protocol === 'http:' || window.location.proto
 
 const API = IS_PROXIED ? '' : 'https://api.mercadobitcoin.net';
 
+// ── Fontes de dados ─────────────────────────────────────────────
+// Escolhida pelo seletor no topo; persistida em localStorage.
+// Foxbit e Binance mandam Access-Control-Allow-Origin: *, então vão
+// direto, sem passar pelo proxy.
+// Nota: em 12/11/2026 a api.mercadobitcoin.net responde 403 (Cloudflare)
+// para este cliente — o botão MB fica marcado em vermelho quando falha.
+const FOXBIT_API  = 'https://api.foxbit.com.br/rest/v3';
+const BINANCE_API = 'https://api.binance.com/api/v3';
+const DEFAULT_PROVIDER = 'foxbit';
+
 // ════════════════════════════════════════════════════════════════
 //  Utilitários
 // ════════════════════════════════════════════════════════════════
@@ -559,10 +598,126 @@ function category(base) {
 }
 
 // ════════════════════════════════════════════════════════════════
-//  Busca de dados — Mercado Bitcoin
+//  Busca de dados
 // ════════════════════════════════════════════════════════════════
 
-async function fetchSymbols() {
+// Ambos os provedores entregam o mesmo contrato:
+//   fetchSymbols()            -> ['BTC-BRL', ...]
+//   fetchTickersBatch(syms)   -> Map<symbol, {last, open, vol}>
+// com `vol` em volume de base (o chamador faz vol * last).
+
+const PROVIDERS = {
+  foxbit:  { label: 'Foxbit',  symbols: () => fetchSymbolsFoxbit(),
+                               tickers: (s) => fetchTickersFoxbit(s)    },
+  binance: { label: 'Binance', symbols: () => fetchSymbolsBinance(),
+                               tickers: (s) => fetchTickersBinance(s)   },
+  mb:      { label: 'MB',      symbols: () => fetchSymbolsMB(),
+                               tickers: (s) => fetchTickersBatchMB(s)   },
+};
+
+let provider = DEFAULT_PROVIDER;
+try {
+  const saved = localStorage.getItem('cryptoboard.provider');
+  if (saved && PROVIDERS[saved]) provider = saved;
+} catch { /* localStorage bloqueado — segue com o padrão */ }
+
+const fetchSymbols      = ()     => PROVIDERS[provider].symbols();
+const fetchTickersBatch = (syms) => PROVIDERS[provider].tickers(syms);
+
+// ── Foxbit ───────────────────────────────────────────────────────
+
+async function fetchSymbolsFoxbit() {
+  const data = await fetchJSON(`${FOXBIT_API}/markets`, 10_000);
+  const list = Array.isArray(data?.data) ? data.data : null;
+  if (!list) throw new Error('Formato inesperado do endpoint /markets da Foxbit');
+  return list
+    .filter(m => m?.quote?.symbol === 'brl' && m?.base?.symbol)
+    .map(m => `${m.base.symbol.toUpperCase()}-BRL`);
+}
+
+async function fetchTickersFoxbit(symbols) {
+  const map = new Map();
+  // A Foxbit devolve todos os mercados num único GET — o lote é ignorado.
+  const data = await fetchJSON(`${FOXBIT_API}/markets/ticker/24hr`, FETCH_TIMEOUT);
+  const list = Array.isArray(data?.data) ? data.data : [];
+  const byMarket = new Map(list.map(t => [t.market_symbol, t]));
+  for (const sym of symbols) {
+    // 'BTC-BRL' -> 'btcbrl'
+    const t = byMarket.get(sym.toLowerCase().replace('-', ''));
+    if (!t) continue;
+    const r = t.rolling_24h || {};
+    map.set(sym, {
+      last: parseFloat(t.last_trade?.price) || 0,
+      open: parseFloat(r.open)              || 0,
+      vol:  parseFloat(r.volume)            || 0,
+    });
+  }
+  return map;
+}
+
+// ── Binance ──────────────────────────────────────────────────────
+// Atenção: dos ~60 pares BRL que o /ticker/24hr devolve, só 18 estão
+// em TRADING. Os outros 42 estão em BREAK (suspensos) e devolvem dados
+// congelados — ACTBRL -75%, OMNIBRL -58%. Por isso o status é cruzado
+// com o /exchangeInfo antes de montar o board.
+//
+// Custo: a descoberta (ticker completo 1,9 MB + exchangeInfo filtrado
+// 320 KB) roda 1x por hora; o ciclo de 30s baixa só 9 KB.
+
+let _bnbSymbols = { at: 0, list: null };
+const BNB_SYMBOLS_TTL = 3_600_000;  // 1 hora
+
+async function fetchSymbolsBinance() {
+  const now = Date.now();
+  if (_bnbSymbols.list && now - _bnbSymbols.at < BNB_SYMBOLS_TTL) {
+    return _bnbSymbols.list;
+  }
+  const tick = await fetchJSON(`${BINANCE_API}/ticker/24hr`, 20_000);
+  const brl  = (Array.isArray(tick) ? tick : [])
+    .map(t => t?.symbol)
+    .filter(s => typeof s === 'string' && s.endsWith('BRL'));
+  if (!brl.length) throw new Error('Nenhum par BRL no ticker da Binance');
+
+  const info = await fetchJSON(
+    `${BINANCE_API}/exchangeInfo?symbols=${encodeURIComponent(JSON.stringify(brl))}`,
+    20_000
+  );
+  const trading = new Set(
+    (info?.symbols || []).filter(x => x?.status === 'TRADING').map(x => x.symbol)
+  );
+  if (!trading.size) throw new Error('Nenhum par BRL em TRADING na Binance');
+
+  const list = brl.filter(s => trading.has(s)).map(s => `${s.slice(0, -3)}-BRL`);
+  _bnbSymbols = { at: now, list };
+  return list;
+}
+
+async function fetchTickersBinance(symbols) {
+  const map = new Map();
+  if (!symbols.length) return map;
+  // 'BTC-BRL' -> 'BTCBRL'
+  const pairs = symbols.map(s => s.replace('-', ''));
+  const data  = await fetchJSON(
+    `${BINANCE_API}/ticker/24hr?symbols=${encodeURIComponent(JSON.stringify(pairs))}`,
+    FETCH_TIMEOUT
+  );
+  const list = Array.isArray(data) ? data : [data];
+  const by   = new Map(list.filter(Boolean).map(t => [t.symbol, t]));
+  for (const sym of symbols) {
+    const t = by.get(sym.replace('-', ''));
+    if (!t) continue;
+    map.set(sym, {
+      last: parseFloat(t.lastPrice) || 0,
+      open: parseFloat(t.openPrice) || 0,
+      vol:  parseFloat(t.volume)    || 0,
+    });
+  }
+  return map;
+}
+
+// ── Mercado Bitcoin ──────────────────────────────────────────────
+
+async function fetchSymbolsMB() {
   const data = await fetchJSON(`${API}/api/v4/symbols`, 10_000);
   let list;
   if (Array.isArray(data))              list = data;
@@ -573,7 +728,7 @@ async function fetchSymbols() {
   return list.map(s => typeof s === 'string' ? s : (s.symbol || s.pair || '')).filter(Boolean);
 }
 
-async function fetchTickersBatch(symbols) {
+async function fetchTickersBatchMB(symbols) {
   const map = new Map();
   for (let i = 0; i < symbols.length; i += TICKER_BATCH) {
     const batch = symbols.slice(i, i + TICKER_BATCH);
@@ -604,6 +759,7 @@ async function fetchTickersBatch(symbols) {
 
 let coins     = [];
 let firstLoad = true;
+let renderedProvider = null;   // qual fonte está desenhada na tela
 
 // ════════════════════════════════════════════════════════════════
 //  Carregamento principal
@@ -641,6 +797,9 @@ async function loadData() {
     renderHeatmap();
     startRefreshBar();
     setStatus('ok');
+    markProvider(provider, true);
+    renderedProvider = provider;
+    showHeatmapMsg('');
     updateTimestamp(new Date());
     document.getElementById('coin-count').textContent =
       `${coins.filter(c => c.available).length} ativos`;
@@ -652,8 +811,16 @@ async function loadData() {
       setTimeout(() => ov.classList.add('hidden'), 450);
     }
   } catch (err) {
-    console.error('[CryptoBoard] Erro:', err);
+    console.error(`[CryptoBoard] Erro (${provider}):`, err);
     setStatus('error');
+    markProvider(provider, false);
+    // Board mostrando outra corretora? Limpa, para não rotular errado.
+    if (renderedProvider && renderedProvider !== provider) {
+      coins = []; renderedProvider = null; clearHeatmap();
+    }
+    document.getElementById('coin-count').textContent =
+      renderedProvider ? `${coins.filter(c => c.available).length} ativos` : '—';
+    showHeatmapMsg(`Falha ao buscar dados da ${PROVIDERS[provider].label}.`);
     if (firstLoad) setOverlayMsg('Erro ao carregar dados. Verifique o console.');
     if (err.message && (
       err.message.includes('Failed to fetch') ||
@@ -1338,9 +1505,77 @@ async function initTicker() {
 }
 
 // ════════════════════════════════════════════════════════════════
+//  Seletor de fonte de dados
+// ════════════════════════════════════════════════════════════════
+
+const failedProviders = new Set();
+
+function renderSrcPicker() {
+  const box = document.getElementById('src-picker');
+  if (!box) return;
+  box.innerHTML = '';
+  for (const [id, cfg] of Object.entries(PROVIDERS)) {
+    const b = document.createElement('button');
+    b.className   = 'src-btn' + (id === provider ? ' active' : '')
+                              + (failedProviders.has(id) ? ' failed' : '');
+    b.dataset.src = id;
+    b.type        = 'button';
+    b.textContent = cfg.label;
+    b.title       = failedProviders.has(id)
+      ? `${cfg.label} — a última tentativa falhou`
+      : `Usar dados da ${cfg.label}`;
+    b.setAttribute('aria-pressed', String(id === provider));
+    b.addEventListener('click', () => switchProvider(id));
+    box.appendChild(b);
+  }
+}
+
+function switchProvider(id) {
+  if (!PROVIDERS[id] || id === provider) return;
+  provider = id;
+  try { localStorage.setItem('cryptoboard.provider', id); } catch {}
+  failedProviders.delete(id);
+
+  renderSrcPicker();
+  // O board anterior fica visível mas esmaecido até o novo dado chegar.
+  // Se a nova fonte falhar, loadData() limpa a tela — nunca mostramos
+  // dados de uma corretora sob o rótulo de outra.
+  document.getElementById('heatmap').classList.add('switching');
+  document.getElementById('coin-count').textContent = `carregando ${PROVIDERS[id].label}…`;
+  [...document.querySelectorAll('.src-btn')].forEach(b => b.disabled = true);
+
+  loadData().finally(() => {
+    document.getElementById('heatmap').classList.remove('switching');
+    [...document.querySelectorAll('.src-btn')].forEach(b => b.disabled = false);
+  });
+}
+
+// Esvazia o treemap de verdade (renderHeatmap() só retorna cedo se não há dados)
+function clearHeatmap() {
+  const h = document.getElementById('heatmap');
+  if (h) h.replaceChildren();
+}
+
+// #heatmap-msg fica FORA de #heatmap: renderHeatmap() recicla os filhos
+// de #heatmap com removeChild(firstChild) e levaria a mensagem junto.
+function showHeatmapMsg(txt) {
+  const el = document.getElementById('heatmap-msg');
+  if (!el) return;
+  el.textContent = txt || '';
+  el.classList.toggle('show', Boolean(txt));
+}
+
+function markProvider(id, ok) {
+  const had = failedProviders.has(id);
+  if (ok) failedProviders.delete(id); else failedProviders.add(id);
+  if (had !== failedProviders.has(id)) renderSrcPicker();
+}
+
+// ════════════════════════════════════════════════════════════════
 //  Inicialização
 // ════════════════════════════════════════════════════════════════
 
+renderSrcPicker();
 initFearGreed();
 initNewsPanel();
 initTicker();
